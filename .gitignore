@@ -31,8 +31,9 @@ tbmodels/_ptools/*
 !tbmodels/_ptools/sparse_matrix.py
 !tbmodels/_ptools/locker.py
 
-# debug folder
+# debug/speed test folder
 debug
+speed_test
 
 # testing files from Brutus
 lsf.*
@@ -43,3 +44,5 @@ venv*
 
 # pytest
 .cache
+htmlcov
+.coverage
