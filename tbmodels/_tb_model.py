@@ -967,6 +967,112 @@ class Model(HDF5Enabled):
         """
         return la.eigvalsh(self.hamilton(k))
 
+    def dos(
+        self,
+        energy_range: ty.Collection[float],
+        num_energy: int,
+        kmesh: ty.Collection[int],
+        smr_index=0,
+        smr_width=0.1
+    ) -> np.ndarray:
+        """Calculate dos in the specified energy range
+
+        default smearing is gaussian
+        
+        :param energy_range: [lower_limit, upper_limit, number_of_points]
+        :type energy_range: ty.Collection[float]
+        :return: dos at specified energy points
+        :rtype: np.ndarray
+        """
+        if len(energy_range) != 2:
+            raise ValueError("Invalid energy range")
+        if num_energy < 2:
+            raise ValueError("number of energy points must > 2")
+        energy_list = np.linspace(energy_range[0], energy_range[1], num_energy)
+        if len(kmesh) != 3:
+            raise ValueError("Invalid kpoint mesh:" + kmesh)
+        num_kpts = np.product(kmesh)
+        kweight = 1.0 / num_kpts
+        kpt_x = np.linspace(0, 1, kmesh[0], endpoint=False)
+        kpt_y = np.linspace(0, 1, kmesh[1], endpoint=False)
+        kpt_z = np.linspace(0, 1, kmesh[2], endpoint=False)
+        from itertools import product
+        kpt_list = product(kpt_x, kpt_y, kpt_z)
+        dos_all = np.zeros(shape=num_energy)
+        i = 0  #
+        for kpt in kpt_list:
+            dos_k = self._dos_k(energy_list, i, kpt, smr_index, smr_width)
+            i += 1  #
+            dos_all = dos_all + dos_k * kweight
+        return dos_all
+
+    def _dos_k(
+        self, energy_list: ty.Collection[float], i, k: ty.Collection[float], smr_index: int, smr_width: float
+    ) -> np.ndarray:
+        """calculates the contribution to the DOS of a single k point
+        
+        :param energy_list: [description]
+        :type energy_list: [type]
+        :param k: [description]
+        :type k: [type]
+        :param smr_index: [description]
+        :type smr_index: int
+        :param smr_width: [description]
+        :type smr_width: [type]
+        """
+        from .helpers import utility_w0gauss
+
+        # currently only works for no-spin case
+        num_elec_per_state = 2
+        smearing_cutoff = 10.0
+        min_smearing_binwidth_ratio = 2.0
+
+        binwidth = energy_list[1] - energy_list[0]
+        num_energy = len(energy_list)
+        energy_width = energy_list[-1] - energy_list[0]
+
+        dos_k = np.zeros(shape=num_energy)
+        eig_k = self.eigenval(k)
+        # eig_k = np.loadtxt('/home/junfeng/git/w90_auto_dos/dos_data/example06/eig'+str(i),skiprows=1)
+
+        for eig in eig_k:
+            # Faster optimization: I precalculate the indices
+            if (smr_width / binwidth) < min_smearing_binwidth_ratio:
+                f = int((eig - energy_list[0]) / energy_width * (num_energy - 1)) + 1
+                min_f = max(f, 1)
+                max_f = min(f, num_energy)
+                do_smearing = False
+            else:
+                f = int((eig - smearing_cutoff * smr_width - energy_list[0]) / energy_width * (num_energy - 1)) + 1
+                min_f = max(f, 1)
+                f = int((eig + smearing_cutoff * smr_width - energy_list[0]) / energy_width * (num_energy - 1)) + 1
+                max_f = min(f, num_energy)
+                do_smearing = True
+
+            for loop_f in range(min_f - 1, max_f):
+                # kind of smearing read from input (internal smearing_index variable)
+                if (do_smearing):
+                    arg = (energy_list[loop_f] - eig) / smr_width
+                    rdum = utility_w0gauss(arg, smr_index) / smr_width
+                else:
+                    rdum = 1.0 / (energy_list[1] - energy_list[0])
+
+                # Contribution to total DOS
+                dos_k[loop_f] = dos_k[loop_f] + rdum * num_elec_per_state
+
+        # f = open("kpt"+str(i), mode='w')#
+        # f.write("{} {} {}\n".format(k[0], k[1], k[2]))#
+        # for d in dos_k:
+        #     f.write("{}\n".format(d))#
+        # f.close()
+
+        # f = open("eig"+str(i), mode='w')#
+        # f.write("{} {} {}\n".format(k[0], k[1], k[2]))#
+        # for d in eig_k:
+        #     f.write("{}\n".format(d))#
+        # f.close()
+        return dos_k
+
     #-------------------MODIFYING THE MODEL ----------------------------#
     def add_hop(self, overlap: complex, orbital_1: int, orbital_2: int, R: ty.Collection[int]):
         r"""
