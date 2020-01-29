@@ -179,3 +179,60 @@ def eigenvals(input, kpoints, output):  # pylint: disable=redefined-builtin
     click.echo("Writing kpoints and energy eigenvalues to file '{}' ...".format(output))
     bi.io.save(eigenvalues, output)
     click.echo("Done!")
+
+
+@cli.command(short_help="Calculate density of states.")
+@_input_option
+@click.option(
+    '-k',
+    '--kmesh',
+    type=int,
+    nargs=3,
+    help='Kpoint mesh on which the density of states are evaluated.'
+)
+@click.option(
+    '-e',
+    '--energy-range',
+    type=float,
+    nargs=2,
+    help='Energy range for the dos calculation'
+)
+@click.option(
+    '-n',
+    '--number-of-energy',
+    type=int,
+    nargs=1,
+    help='Number of points in the energy range'
+)
+@click.option(
+    '-s',
+    '--smearing-index',
+    type=int,
+    nargs=1,
+    help='Type of smearing'
+)
+@click.option(
+    '-w',
+    '--smearing-width',
+    type=float,
+    nargs=1,
+    help='Width of smearing'
+)
+@_output_option(default='dos.hdf5', help='Output file for the density of states.')
+def dos(input, kmesh, energy_range, number_of_energy, smearing_index, smearing_width, output):  # pylint: disable=redefined-builtin
+    """
+    Calculate the density of states for a given set of k-points (in reduced coordinates), 
+    energy range, and smearing type. The input and output is given in an HDF5 file.
+    """
+
+    model = _read_input(input)
+
+    click.echo("Calculating density of states ...")
+    energy, dos = model.dos(energy_range, number_of_energy, kmesh, smearing_index, smearing_width)
+
+    click.echo("Writing energy and density of states to file '{}' ...".format(output))
+    import h5py
+    with h5py.File(output, "w") as f:
+        f.create_dataset("energy", data=energy)
+        f.create_dataset("dos", data=dos)
+    click.echo("Done!")

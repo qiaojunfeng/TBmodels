@@ -1004,7 +1004,7 @@ class Model(HDF5Enabled):
             dos_k = self._dos_k(energy_list, i, kpt, smr_index, smr_width)
             i += 1  #
             dos_all = dos_all + dos_k * kweight
-        return dos_all
+        return (energy_list, dos_all)
 
     def _dos_k(
         self, energy_list: ty.Collection[float], i, k: ty.Collection[float], smr_index: int, smr_width: float
