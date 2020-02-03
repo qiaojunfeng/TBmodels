@@ -991,87 +991,135 @@ class Model(HDF5Enabled):
         energy_list = np.linspace(energy_range[0], energy_range[1], num_energy)
         if len(kmesh) != 3:
             raise ValueError("Invalid kpoint mesh:" + kmesh)
+
+        from itertools import product
         num_kpts = np.product(kmesh)
         kweight = 1.0 / num_kpts
         kpt_x = np.linspace(0, 1, kmesh[0], endpoint=False)
         kpt_y = np.linspace(0, 1, kmesh[1], endpoint=False)
         kpt_z = np.linspace(0, 1, kmesh[2], endpoint=False)
-        from itertools import product
         kpt_list = product(kpt_x, kpt_y, kpt_z)
-        dos_all = np.zeros(shape=num_energy)
-        i = 0  #
-        for kpt in kpt_list:
-            dos_k = self._dos_k(energy_list, i, kpt, smr_index, smr_width)
-            i += 1  #
-            dos_all = dos_all + dos_k * kweight
-        return (energy_list, dos_all)
-
-    def _dos_k(
-        self, energy_list: ty.Collection[float], i, k: ty.Collection[float], smr_index: int, smr_width: float
-    ) -> np.ndarray:
-        """calculates the contribution to the DOS of a single k point
-        
-        :param energy_list: [description]
-        :type energy_list: [type]
-        :param k: [description]
-        :type k: [type]
-        :param smr_index: [description]
-        :type smr_index: int
-        :param smr_width: [description]
-        :type smr_width: [type]
-        """
-        from .helpers import utility_w0gauss
 
         # currently only works for no-spin case
         num_elec_per_state = 2
-        smearing_cutoff = 10.0
+        # smearing_cutoff = 10.0
         min_smearing_binwidth_ratio = 2.0
 
-        binwidth = energy_list[1] - energy_list[0]
-        num_energy = len(energy_list)
-        energy_width = energy_list[-1] - energy_list[0]
+        energy_step = energy_list[1] - energy_list[0]
 
-        dos_k = np.zeros(shape=num_energy)
-        eig_k = self.eigenval(k)
-        # eig_k = np.loadtxt('/home/junfeng/git/w90_auto_dos/dos_data/example06/eig'+str(i),skiprows=1)
+        if (smr_width / energy_step) < min_smearing_binwidth_ratio:
+            do_smearing = False
+        else:
+            do_smearing = True
 
-        for eig in eig_k:
-            # Faster optimization: I precalculate the indices
-            if (smr_width / binwidth) < min_smearing_binwidth_ratio:
-                f = int((eig - energy_list[0]) / energy_width * (num_energy - 1)) + 1
-                min_f = max(f, 1)
-                max_f = min(f, num_energy)
-                do_smearing = False
+        def w0gauss(x: ty.Collection[float]) -> ty.Collection[float]:
+            """from wannier90/src/utility.F90, fully accept numpy.array
+
+            the derivative of utility_wgauss:  an approximation to the delta function
+            
+            (n>=0) : derivative of the corresponding Methfessel-Paxton utility_wgauss
+            
+            (n=-1 ): derivative of cold smearing:
+                        1/sqrt(pi)*exp(-(x-1/sqrt(2))**2)*(2-sqrt(2)*x)
+            
+            (n=-99): derivative of Fermi-Dirac function: 0.5/(1.0+cosh(x))
+            
+            :param x: [description]
+            :type x: np.array
+            :param smr_index: the order of the smearing function
+            :type smr_index: int
+            :return: [description]
+            :rtype: np.array
+            """
+
+            w0gauss = np.zeros(x.shape)
+
+            # Fermi-Dirac smearing
+            sqrtpm1 = 1.0 / np.sqrt(np.pi)
+
+            if smr_index == -99:
+                # in order to avoid problems for large values of x in the e
+                arg = np.abs(x) < 36.0
+                w0gauss[arg] = 1.00 / (2.00 + np.exp(-x[arg]) + np.exp(+x[arg]))
+                return w0gauss
+
+            # cold smearing  (Marzari-Vanderbilt)
+            if smr_index == -1:
+                arg = (x - 1 / np.sqrt(2))**2
+                arg[arg > 200] = 200
+                w0gauss = sqrtpm1 * np.exp(-arg) * (2 - np.sqrt(2) * x)
+                return w0gauss
+
+            if (smr_index > 10) or (smr_index < 0):
+                raise ValueError('higher order smearing is untested and unstable')
+
+            # Methfessel-Paxton
+            arg = x**2
+            arg[arg > 200] = 200
+            w0gauss = np.exp(-arg) * sqrtpm1
+
+            if smr_index == 0:
+                return w0gauss
+
+            hd = 0.0
+            hp = np.exp(-arg)
+            ni = 0.0
+            a = sqrtpm1
+            for i in range(1, smr_index + 1):
+                hd = 2 * x * hp - 2 * ni * hd
+                ni = ni + 1
+                a = -a / (i * 4)
+                hp = 2 * x * hd - 2 * ni * hp
+                ni = ni + 1
+                w0gauss = w0gauss + a * hp
+
+            return w0gauss
+
+        def get_dos_k(k: ty.Collection[float]) -> np.ndarray:
+            """calculates the contribution to the DOS of a single k point
+            
+            :param energy_list: [description]
+            :type energy_list: [type]
+            :param k: [description]
+            :type k: [type]
+            :param smr_index: [description]
+            :type smr_index: int
+            :param smr_width: [description]
+            :type smr_width: [type]
+            """
+            eig_k = self.eigenval(k).reshape((1, -1)) # in row
+            e_list = energy_list.reshape((-1, 1)) # in column
+
+            dos_k = np.zeros(shape=num_energy)
+            
+            mat_e_minus_eig = e_list - eig_k # use np broadcasting
+            if (do_smearing):
+                arg = mat_e_minus_eig / smr_width
+                dos_k = np.sum(w0gauss(arg) / smr_width, axis=1)
             else:
-                f = int((eig - smearing_cutoff * smr_width - energy_list[0]) / energy_width * (num_energy - 1)) + 1
-                min_f = max(f, 1)
-                f = int((eig + smearing_cutoff * smr_width - energy_list[0]) / energy_width * (num_energy - 1)) + 1
-                max_f = min(f, num_energy)
-                do_smearing = True
+                # find grid in energy_list which is nearest to each eigenvalue
+                arg = np.argmin(np.abs(mat_e_minus_eig), axis=0)
+                dos_k[arg] = 1.0 / energy_step
 
-            for loop_f in range(min_f - 1, max_f):
-                # kind of smearing read from input (internal smearing_index variable)
-                if (do_smearing):
-                    arg = (energy_list[loop_f] - eig) / smr_width
-                    rdum = utility_w0gauss(arg, smr_index) / smr_width
-                else:
-                    rdum = 1.0 / (energy_list[1] - energy_list[0])
+            return dos_k * num_elec_per_state
 
-                # Contribution to total DOS
-                dos_k[loop_f] = dos_k[loop_f] + rdum * num_elec_per_state
+            # f = open("kpt"+str(i), mode='w')#
+            # f.write("{} {} {}\n".format(k[0], k[1], k[2]))#
+            # for d in dos_k:
+            #     f.write("{}\n".format(d))#
+            # f.close()
 
-        # f = open("kpt"+str(i), mode='w')#
-        # f.write("{} {} {}\n".format(k[0], k[1], k[2]))#
-        # for d in dos_k:
-        #     f.write("{}\n".format(d))#
-        # f.close()
+            # f = open("eig"+str(i), mode='w')#
+            # f.write("{} {} {}\n".format(k[0], k[1], k[2]))#
+            # for d in eig_k:
+            #     f.write("{}\n".format(d))#
+            # f.close()
 
-        # f = open("eig"+str(i), mode='w')#
-        # f.write("{} {} {}\n".format(k[0], k[1], k[2]))#
-        # for d in eig_k:
-        #     f.write("{}\n".format(d))#
-        # f.close()
-        return dos_k
+        dos_all = np.zeros(shape=num_energy)
+        for kpt in kpt_list:
+            dos_k = get_dos_k(kpt)
+            dos_all = dos_all + dos_k * kweight
+        return (energy_list, dos_all)
 
     #-------------------MODIFYING THE MODEL ----------------------------#
     def add_hop(self, overlap: complex, orbital_1: int, orbital_2: int, R: ty.Collection[int]):
