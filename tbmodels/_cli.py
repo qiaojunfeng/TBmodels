@@ -275,24 +275,35 @@ def eigenvals(input, kpoints, output, verbose):  # pylint: disable=redefined-bui
     help='Kpoint mesh on which the density of states are evaluated.'
 )
 @click.option(
-    '-e',
-    '--energy-range',
+    '-emin',
+    '--energy-min',
     type=float,
-    nargs=2,
-    help='Energy range for the dos calculation'
+    nargs=1,
+    default=None,
+    help='Energy minimum for the dos calculation'
 )
 @click.option(
-    '-n',
-    '--number-of-energy',
-    type=int,
+    '-emax',
+    '--energy-max',
+    type=float,
     nargs=1,
-    help='Number of points in the energy range'
+    default=None,
+    help='Energy maximum for the dos calculation'
+)
+@click.option(
+    '-de',
+    '--energy-step',
+    type=float,
+    nargs=1,
+    default=None,
+    help='Energy step for the dos calculation'
 )
 @click.option(
     '-s',
     '--smearing-index',
     type=int,
     nargs=1,
+    default=0,
     help='Type of smearing'
 )
 @click.option(
@@ -300,23 +311,30 @@ def eigenvals(input, kpoints, output, verbose):  # pylint: disable=redefined-bui
     '--smearing-width',
     type=float,
     nargs=1,
+    default=0.1,
     help='Width of smearing'
 )
 @_INPUT_OPTION(default='dos.hdf5', help='Output file for the density of states.')
-def dos(input, kmesh, energy_range, number_of_energy, smearing_index, smearing_width, output):  # pylint: disable=redefined-builtin
+def dos(input, kmesh, energy_min, energy_max, energy_step, 
+        smearing_index, smearing_width, output):  # pylint: disable=redefined-builtin
     """
-    Calculate the density of states for a given set of k-points (in reduced coordinates), 
+    Calculate the density of states for a given set of k-points (in reduced coordinates),
     energy range, and smearing type. The input and output is given in an HDF5 file.
     """
     import h5py
 
+    click.echo("Calculating density of states ...")
     model = _read_input(input)
 
-    click.echo("Calculating density of states ...")
-    energy, dos = model.dos(energy_range, number_of_energy, kmesh, smearing_index, smearing_width)
+    energy_range = None
+    if energy_min is not None or energy_max is not None or energy_step is not None:
+        energy_range = [energy_min, energy_max, energy_step]
 
-    click.echo("Writing energy and density of states to file '{}' ...".format(output))
+    result = model.dos(kmesh, energy_range, smearing_index, smearing_width)
+
+    click.echo(f"Writing energy and density of states to file '{output}' ...")
     with h5py.File(output, "w") as f:
-        f.create_dataset("energy", data=energy)
-        f.create_dataset("dos", data=dos)
+        f.create_dataset("energy", data=result[0])
+        f.create_dataset("dos", data=result[1])
+
     click.echo("Done!")
