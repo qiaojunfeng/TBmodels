@@ -969,26 +969,20 @@ class Model(HDF5Enabled):
 
     def dos(
         self,
-        energy_range: ty.Collection[float],
-        num_energy: int,
         kmesh: ty.Collection[int],
+        energy_range=None,
         smr_index=0,
         smr_width=0.1
     ) -> np.ndarray:
         """Calculate dos in the specified energy range
 
         default smearing is gaussian
-        
-        :param energy_range: [lower_limit, upper_limit, number_of_points]
+
+        :param energy_range: [energy_min, energy_max, energy_step]
         :type energy_range: ty.Collection[float]
         :return: dos at specified energy points
         :rtype: np.ndarray
         """
-        if len(energy_range) != 2:
-            raise ValueError("Invalid energy range")
-        if num_energy < 2:
-            raise ValueError("number of energy points must > 2")
-        energy_list = np.linspace(energy_range[0], energy_range[1], num_energy)
         if len(kmesh) != 3:
             raise ValueError("Invalid kpoint mesh:" + kmesh)
 
@@ -1005,7 +999,20 @@ class Model(HDF5Enabled):
         # smearing_cutoff = 10.0
         min_smearing_binwidth_ratio = 2.0
 
-        energy_step = energy_list[1] - energy_list[0]
+        eigs = np.zeros((num_kpts, self.size))
+        for ik, kpt in enumerate(kpt_list):
+            eigs[ik] = self.eigenval(kpt)
+
+        if energy_range is None:
+            emax = eigs.max() - 0.5
+            emin = eigs.min() + 0.5
+            energy_step = min((emax-emin)/200, 0.05)
+            energy_list = np.arange(emin, emax, energy_step)
+        else:
+            if len(energy_range) != 3:
+                raise ValueError("Invalid energy range {}".format(str(energy_range)))
+            energy_step = energy_range[2]
+            energy_list = np.arange(*energy_range)
 
         if (smr_width / energy_step) < min_smearing_binwidth_ratio:
             do_smearing = False
@@ -1075,7 +1082,7 @@ class Model(HDF5Enabled):
 
             return w0gauss
 
-        def get_dos_k(k: ty.Collection[float]) -> np.ndarray:
+        def get_dos_k(ik: int) -> np.ndarray:
             """calculates the contribution to the DOS of a single k point
             
             :param energy_list: [description]
@@ -1087,10 +1094,10 @@ class Model(HDF5Enabled):
             :param smr_width: [description]
             :type smr_width: [type]
             """
-            eig_k = self.eigenval(k).reshape((1, -1)) # in row
+            eig_k = eigs[ik].reshape((1, -1)) # in row
             e_list = energy_list.reshape((-1, 1)) # in column
 
-            dos_k = np.zeros(shape=num_energy)
+            dos_k = np.zeros(shape=len(energy_list))
             
             mat_e_minus_eig = e_list - eig_k # use np broadcasting
             if (do_smearing):
@@ -1115,9 +1122,9 @@ class Model(HDF5Enabled):
             #     f.write("{}\n".format(d))#
             # f.close()
 
-        dos_all = np.zeros(shape=num_energy)
-        for kpt in kpt_list:
-            dos_k = get_dos_k(kpt)
+        dos_all = np.zeros(shape=len(energy_list))
+        for ik in range(num_kpts):
+            dos_k = get_dos_k(ik)
             dos_all = dos_all + dos_k * kweight
         return (energy_list, dos_all)
 
