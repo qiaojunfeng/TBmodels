@@ -1106,7 +1106,8 @@ class Model(HDF5Enabled):
             else:
                 # find grid in energy_list which is nearest to each eigenvalue
                 arg = np.argmin(np.abs(mat_e_minus_eig), axis=0)
-                dos_k[arg] = 1.0 / energy_step
+                ind, fac = np.unique(arg, return_counts=True)
+                dos_k[ind] = 1.0 / energy_step * fac
 
             return dos_k * num_elec_per_state
 
