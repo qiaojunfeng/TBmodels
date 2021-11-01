@@ -563,6 +563,11 @@ class Model(HDF5Enabled):
                     if not ignore_orbital_order and (iw != i + 1 or jw != j + 1):
                         raise ValueError(f"Inconsistent orbital numbers in line '{line}'")
                     ham = (float(line[2]) + 1j * float(line[3])) / deg_pts[ir]
+                    # ham = (float(line[4]) + 1j * float(line[5])) / deg_pts[ir]  # hhmn
+                    # ham = 0
+                    # ham += (float(line[6]) + 1j * float(line[7])) / deg_pts[ir]  # hkmn
+                    # ham += (float(line[8]) + 1j * float(line[9])) / deg_pts[ir]  # hvmn
+                    # ham += (float(line[10]) + 1j * float(line[11])) / deg_pts[ir]  # hdmn
                     hop_list.append([ham, i, j, r_vec])
 
         # <0n|r|Rm>
