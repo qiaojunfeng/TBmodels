@@ -185,11 +185,12 @@ class Model(HDF5Enabled):
             for key, value in hop.items()
         }
 
+        # print(pos)
         # positions
         if pos is None:
             self.pos = np.zeros((self.size, self.dim))
         elif len(pos) == self.size and all(len(p) == self.dim for p in pos):
-            pos, hop = self._map_to_uc(pos, hop)
+            # pos, hop = self._map_to_uc(pos, hop)
             self.pos = np.array(pos)  # implicit copy
         else:
             if len(pos) != self.size:
@@ -199,6 +200,7 @@ class Model(HDF5Enabled):
             raise ValueError(
                 "Invalid argument for 'pos': The length of each position must be the same as the dimensionality of the system."
             )
+        # print(contains_cc)
 
         if contains_cc:
             hop = self._reduce_hop(hop, cc_check_tolerance=cc_check_tolerance)
@@ -226,6 +228,7 @@ class Model(HDF5Enabled):
         hoppings in csr format
         """
         uc_offsets = [np.array(np.floor(p), dtype=int) for p in pos]
+        print(uc_offsets)
         # ---- common case: already mapped into the UC ----
         if all([all(o == 0 for o in offset) for offset in uc_offsets]):
             return pos, hop
@@ -388,6 +391,8 @@ class Model(HDF5Enabled):
             R_vec = tuple(R)
             hop_list_dict[R_vec].append(t, i, j)
 
+        # return hop_list_dict
+
         # creating CSR matrices
         hop_dict = dict()
         for key, val in hop_list_dict.items():
@@ -396,6 +401,8 @@ class Model(HDF5Enabled):
                 dtype=complex,
                 shape=(size, size),
             )
+
+        # return hop_dict
 
         return cls(size=size, hop=hop_dict, **kwargs)
 
